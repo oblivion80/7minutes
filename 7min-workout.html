@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0c0f14">
+<title>7 Minute Workout</title>
+<style>
+  :root{
+    --bg:#0c0f14;
+    --work:#ff5c33;
+    --rest:#2ec5d3;
+    --ready:#8a93a6;
+    --text:#f2f4f8;
+    --dim:#8a93a6;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    display:flex;flex-direction:column;
+    height:100dvh;
+    overflow:hidden;
+    transition:background .5s ease;
+    user-select:none;-webkit-user-select:none;
+  }
+  body.state-work{background:#1c0e08}
+  body.state-rest{background:#07171a}
+  body.state-done{background:#0e1a0e}
+
+  header{
+    padding:18px 20px 0;
+    display:flex;justify-content:space-between;align-items:baseline;
+  }
+  #progress-label{font-size:.85rem;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);font-weight:600}
+  #total-time{font-size:.85rem;color:var(--dim);font-variant-numeric:tabular-nums}
+
+  #dots{display:flex;gap:6px;padding:12px 20px 0}
+  .dot{flex:1;height:4px;border-radius:2px;background:#2a3040;transition:background .3s}
+  .dot.done{background:var(--work)}
+  .dot.current{background:var(--text)}
+
+  main{
+    flex:1;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;
+    text-align:center;padding:0 20px;min-height:0;
+  }
+  #phase{
+    font-size:.9rem;font-weight:700;letter-spacing:.28em;text-transform:uppercase;
+    color:var(--ready);transition:color .4s;
+  }
+  .state-work #phase{color:var(--work)}
+  .state-rest #phase{color:var(--rest)}
+  #exercise{
+    font-size:clamp(1.7rem,8vw,2.6rem);
+    font-weight:800;line-height:1.1;
+    margin:10px 0 0;
+    max-width:22ch;
+  }
+  #timer{
+    font-size:clamp(6rem,38vw,11rem);
+    font-weight:800;line-height:1;
+    font-variant-numeric:tabular-nums;
+    letter-spacing:-.03em;
+    margin:8px 0;
+  }
+  .state-work #timer{color:var(--work)}
+  .state-rest #timer{color:var(--rest)}
+  #next{
+    font-size:1rem;color:var(--dim);min-height:1.4em;
+  }
+  #next strong{color:var(--text);font-weight:700}
+
+  footer{padding:0 20px calc(20px + env(safe-area-inset-bottom));display:flex;gap:12px}
+  button{
+    flex:1;border:none;border-radius:16px;
+    padding:20px 0;font-size:1.15rem;font-weight:700;
+    font-family:inherit;cursor:pointer;
+    color:var(--bg);background:var(--text);
+    touch-action:manipulation;
+  }
+  button:active{transform:scale(.97)}
+  #btn-main.running{background:#2a3040;color:var(--text)}
+  #btn-reset{flex:0 0 30%;background:#2a3040;color:var(--dim)}
+  button:focus-visible{outline:3px solid var(--rest);outline-offset:2px}
+
+  .pulse{animation:pulse .5s ease}
+  @keyframes pulse{0%{transform:scale(1)}30%{transform:scale(1.06)}100%{transform:scale(1)}}
+  @media (prefers-reduced-motion:reduce){
+    .pulse{animation:none}
+    body,#phase,.dot{transition:none}
+  }
+</style>
+</head>
+<body>
+<header>
+  <span id="progress-label">Ready</span>
+  <span id="total-time">7:00</span>
+</header>
+<div id="dots"></div>
+<main>
+  <div id="phase">Press start</div>
+  <div id="exercise">7 Minute Workout</div>
+  <div id="timer">0:30</div>
+  <div id="next">12 exercises · 30s work · 10s rest</div>
+</main>
+<footer>
+  <button id="btn-reset" aria-label="Reset workout">Reset</button>
+  <button id="btn-main">Start</button>
+</footer>
+
+<script>
+const EXERCISES = [
+  "Jumping Jacks",
+  "Wall Sit",
+  "Push-Ups",
+  "Crunches",
+  "Step-Ups (chair)",
+  "Squats",
+  "Triceps Dips (chair)",
+  "Plank",
+  "High Knees",
+  "Lunges",
+  "Push-Up + Rotation",
+  "Side Plank (switch halfway)"
+];
+const WORK = 30, REST = 10;
+
+// Build schedule: [ {type, name, dur, exIndex} ... ]
+const schedule = [];
+EXERCISES.forEach((name, i) => {
+  schedule.push({type:"work", name, dur:WORK, ex:i});
+  if (i < EXERCISES.length - 1) schedule.push({type:"rest", name:"Rest", dur:REST, ex:i});
+});
+const TOTAL = schedule.reduce((s,p)=>s+p.dur,0);
+
+// --- State ---
+let idx = 0, remaining = schedule[0].dur, elapsed = 0;
+let running = false, timerId = null, lastTick = 0;
+let wakeLock = null;
+
+// --- Elements ---
+const $ = id => document.getElementById(id);
+const elPhase=$("phase"), elEx=$("exercise"), elTimer=$("timer"),
+      elNext=$("next"), elProg=$("progress-label"), elTotal=$("total-time"),
+      btnMain=$("btn-main"), btnReset=$("btn-reset"), elDots=$("dots");
+
+// Progress dots
+EXERCISES.forEach(()=>{ const d=document.createElement("div"); d.className="dot"; elDots.appendChild(d); });
+const dots=[...elDots.children];
+
+// --- Audio: short beeps only (ducks podcast briefly, never stops it) ---
+let ctx = null;
+function ensureAudio(){
+  if(!ctx) ctx = new (window.AudioContext||window.webkitAudioContext)();
+  if(ctx.state==="suspended") ctx.resume();
+}
+function beep(freq, dur=0.12, vol=0.35){
+  if(!ctx) return;
+  const o=ctx.createOscillator(), g=ctx.createGain();
+  o.type="sine"; o.frequency.value=freq;
+  g.gain.setValueAtTime(vol, ctx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+dur);
+  o.connect(g); g.connect(ctx.destination);
+  o.start(); o.stop(ctx.currentTime+dur);
+}
+const cueWork = ()=>{ beep(880,0.15); vibrate([80,60,80]); };      // start exercise: high double-feel
+const cueRest = ()=>{ beep(440,0.2);  vibrate(120); };             // rest: low
+const cueTick = ()=>{ beep(660,0.06,0.25); };                      // 3-2-1 countdown
+const cueDone = ()=>{ beep(660,0.12); setTimeout(()=>beep(880,0.12),150); setTimeout(()=>beep(1100,0.25),300); vibrate([100,80,100,80,200]); };
+function vibrate(p){ if(navigator.vibrate) navigator.vibrate(p); }
+
+// --- Wake Lock ---
+async function lockScreen(){
+  try{ if("wakeLock" in navigator) wakeLock = await navigator.wakeLock.request("screen"); }catch(e){}
+}
+function unlockScreen(){ if(wakeLock){ wakeLock.release().catch(()=>{}); wakeLock=null; } }
+document.addEventListener("visibilitychange",()=>{ if(running && document.visibilityState==="visible") lockScreen(); });
+
+// --- Render ---
+function fmt(s){ return Math.floor(s/60)+":"+String(Math.ceil(s%60)).padStart(2,"0"); }
+function render(){
+  const p = schedule[idx];
+  document.body.className = "state-"+p.type;
+  elTimer.textContent = "0:"+String(Math.ceil(remaining)).padStart(2,"0");
+  elTotal.textContent = fmt(Math.max(0, TOTAL-elapsed));
+  if(p.type==="work"){
+    elPhase.textContent = "Work";
+    elEx.textContent = p.name;
+    const nxt = EXERCISES[p.ex+1];
+    elNext.innerHTML = nxt ? "Next: <strong>"+nxt+"</strong>" : "Last one!";
+    elProg.textContent = "Exercise "+(p.ex+1)+" / "+EXERCISES.length;
+  } else {
+    elPhase.textContent = "Rest";
+    elEx.textContent = "Get ready:";
+    elNext.innerHTML = "<strong>"+EXERCISES[p.ex+1]+"</strong>";
+    elProg.textContent = "Rest";
+  }
+  dots.forEach((d,i)=>{
+    d.className = "dot" + (i < p.ex || (p.type==="work" && i===p.ex && false) ? " done" : "") ;
+    if(i < p.ex + (p.type==="rest"?1:0)) d.className="dot done";
+    if(p.type==="work" && i===p.ex) d.className="dot current";
+  });
+}
+
+// --- Engine (timestamp-based so background throttling doesn't drift) ---
+function tick(){
+  const now = performance.now();
+  const dt = (now - lastTick)/1000;
+  lastTick = now;
+  remaining -= dt; elapsed += dt;
+  if(remaining <= 3.05 && remaining > 0){
+    // fire tick beep once per integer second
+    const cur = Math.ceil(remaining);
+    if(cur !== tick.lastCue){ tick.lastCue = cur; cueTick(); }
+  }
+  if(remaining <= 0){
+    idx++;
+    tick.lastCue = null;
+    if(idx >= schedule.length){ finish(); return; }
+    remaining += schedule[idx].dur;
+    schedule[idx].type==="work" ? cueWork() : cueRest();
+    elTimer.classList.remove("pulse"); void elTimer.offsetWidth; elTimer.classList.add("pulse");
+  }
+  render();
+}
+function start(){
+  ensureAudio();
+  running = true;
+  btnMain.textContent = "Pause";
+  btnMain.classList.add("running");
+  lastTick = performance.now();
+  timerId = setInterval(tick, 100);
+  lockScreen();
+  if(elapsed===0) cueWork();
+}
+function pause(){
+  running = false;
+  btnMain.textContent = "Resume";
+  btnMain.classList.remove("running");
+  clearInterval(timerId);
+  unlockScreen();
+}
+function reset(){
+  pause();
+  idx=0; remaining=schedule[0].dur; elapsed=0; tick.lastCue=null;
+  btnMain.textContent="Start";
+  document.body.className="";
+  elPhase.textContent="Press start";
+  elEx.textContent="7 Minute Workout";
+  elTimer.textContent="0:30";
+  elNext.textContent="12 exercises · 30s work · 10s rest";
+  elProg.textContent="Ready";
+  elTotal.textContent=fmt(TOTAL);
+  dots.forEach(d=>d.className="dot");
+}
+function finish(){
+  pause();
+  document.body.className="state-done";
+  elPhase.textContent="Complete";
+  elEx.textContent="Nice work! 💪";
+  elTimer.textContent="0:00";
+  elNext.textContent="See you tomorrow";
+  elProg.textContent="Done";
+  elTotal.textContent="0:00";
+  dots.forEach(d=>d.className="dot done");
+  btnMain.textContent="Start";
+  idx=0; remaining=schedule[0].dur; elapsed=0;
+  cueDone();
+}
+btnMain.addEventListener("click", ()=> running ? pause() : start());
+btnReset.addEventListener("click", reset);
+render(); reset();
+</script>
+</body>
+</html>
