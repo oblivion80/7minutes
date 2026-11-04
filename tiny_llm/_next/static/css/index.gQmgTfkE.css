@@ -3,3 +3,5 @@
 
 [dir=rtl] .vocabulary{right:auto;left:clamp(26px,7vw,110px)}
 [dir=rtl] .hero:after{right:auto;left:-100px}
+[dir=rtl] .vocabulary{direction:ltr}
+[dir=rtl] .topbar{direction:ltr}
