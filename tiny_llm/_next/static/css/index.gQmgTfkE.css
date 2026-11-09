@@ -7,3 +7,6 @@
 [dir=rtl] .topbar{direction:ltr}
 [dir=rtl] output,[dir=rtl] .answer strong,[dir=rtl] .derivative-numbers{direction:ltr;unicode-bidi:isolate}
 [dir=rtl] strong{unicode-bidi:plaintext}
+.qr-share{margin:0 auto;display:grid;justify-items:center;gap:6px}
+.qr-share img{width:96px;height:96px;border-radius:8px;border:1px solid var(--line)}
+.qr-share figcaption{font:600 11px/1.2 Arial,sans-serif;color:#755d18;text-align:center;max-width:120px}
