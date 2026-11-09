@@ -5,3 +5,5 @@
 [dir=rtl] .hero:after{right:auto;left:-100px}
 [dir=rtl] .vocabulary{direction:ltr}
 [dir=rtl] .topbar{direction:ltr}
+[dir=rtl] output,[dir=rtl] .answer strong,[dir=rtl] .derivative-numbers{direction:ltr;unicode-bidi:isolate}
+[dir=rtl] strong{unicode-bidi:plaintext}
